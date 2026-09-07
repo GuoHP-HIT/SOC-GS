@@ -51,6 +51,10 @@ def main():
 
     parquet_path = args.parquet_path or os.path.join(
         args.log_dir, args.scene, "best_scene.parquet")
+    if not os.path.exists(parquet_path):
+        raise FileNotFoundError(
+            f"checkpoint not found: {parquet_path} (train the scene first, "
+            f"see README, or pass --parquet_path)")
     experiment = args.experiment or experiment_from_parquet(parquet_path)
 
     render_module = import_experiment(experiment, "render")

@@ -12,7 +12,6 @@ Usage:
 import argparse
 
 from socgs.common.GaussianPointCloudScene import GaussianPointCloudScene
-from socgs.registry import experiment_from_parquet  # noqa: F401 (validates the file)
 
 
 def main():

@@ -45,6 +45,8 @@ def main():
     parser.add_argument("--taichi_memory_gb", type=float, default=4.0)
     args = parser.parse_args()
 
+    if not os.path.exists(args.parquet_path):
+        raise FileNotFoundError(f"checkpoint not found: {args.parquet_path}")
     experiment = args.experiment or experiment_from_parquet(args.parquet_path)
     scene = os.path.basename(os.path.dirname(args.parquet_path))
     log_dir = os.path.dirname(os.path.dirname(args.parquet_path))
