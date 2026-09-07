@@ -26,7 +26,11 @@ log-metrics-interval: 100
 enable_taichi_kernel_profiler: True
 log_taichi_kernel_profile_interval: 3000
 feature_learning_rate: 0.005
-position_learning_rateo: 0.00005
+position_learning_rate: 0.00001
+warmup_single_modality_iterations: 5000
+fine_bundle_adjustment_iteration: 10000
+ending_iterations: 500
+pose_learning_rate: 0.001
 position_learning_rate_decay_rate: 0.9847
 position_learning_rate_decay_interval: 100
 loss-function-config:

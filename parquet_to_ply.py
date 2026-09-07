@@ -11,10 +11,7 @@ Usage:
 
 import argparse
 
-from socgs.common.GaussianPointCloudScene import (
-    GaussianPointCloudScene,
-    PointCloudSceneConfig,
-)
+from socgs.common.GaussianPointCloudScene import GaussianPointCloudScene
 from socgs.registry import experiment_from_parquet  # noqa: F401 (validates the file)
 
 
@@ -29,7 +26,8 @@ def main():
 
     scene = GaussianPointCloudScene.from_trained_parquet(
         args.parquet_path,
-        config=PointCloudSceneConfig(max_num_points_ratio=None, add_sphere=False))
+        config=GaussianPointCloudScene.PointCloudSceneConfig(
+            max_num_points_ratio=None, add_sphere=False))
     scene.to_ply(args.ply_path)
     num_points = int((scene.point_invalid_mask == 0).sum())
     print(f"[parquet_to_ply] exported {num_points} points to {args.ply_path}")

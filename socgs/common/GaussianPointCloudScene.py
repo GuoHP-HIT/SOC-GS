@@ -331,7 +331,7 @@ class GaussianPointCloudScene(torch.nn.Module):
         num_of_features = FEATURE_OFFSET + num_channels * SH_COEFFICIENTS
         if config.num_of_features == num_of_features:
             return config
-        return PointCloudSceneConfig(
+        return GaussianPointCloudScene.PointCloudSceneConfig(
             num_of_features=num_of_features,
             max_num_points_ratio=config.max_num_points_ratio,
             add_sphere=config.add_sphere,
