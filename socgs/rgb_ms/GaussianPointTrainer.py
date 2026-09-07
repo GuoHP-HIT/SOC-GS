@@ -83,14 +83,11 @@ class GaussianPointCloudTrainer:
         # (image, q_pointcloud_camera, t_pointcloud_camera, image_multispectral, \
         # q_pointcloud_camera_multispectral, t_pointcloud_camera_multispectral, camera_info)
         self.train_dataset = ImagePoseDataset(
-            dataset_json_path=self.config.train_dataset_json_path,
-            dataset_json_ms_path=self.config.train_dataset_json_path_ms)
+            dataset_json_path=self.config.train_dataset_json_path)
         self.ms_train_dataset = ImagePoseDataset(
-            dataset_json_path=self.config.full_train_dataset_json_path,
-            dataset_json_ms_path=self.config.train_dataset_json_path_ms)
+            dataset_json_path=self.config.full_train_dataset_json_path)
         self.val_dataset = ImagePoseDataset(
-            dataset_json_path=self.config.val_dataset_json_path,
-            dataset_json_ms_path=self.config.val_dataset_json_path_ms)
+            dataset_json_path=self.config.val_dataset_json_path)
 
         # load parquet point cloud
         self.scene = GaussianPointCloudScene.from_parquet(
