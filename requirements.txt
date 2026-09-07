@@ -1,0 +1,21 @@
+# Core (installed via pip; PyTorch/CUDA is expected to be installed separately,
+# see README "Installation").
+taichi>=1.6.0
+torch>=2.0
+torchvision
+numpy
+matplotlib
+pillow
+pyyaml
+pandas[parquet]>=2.0.0
+scipy
+dataclass-wizard
+pytorch_msssim
+tensorboard
+plyfile
+tqdm
+opencv-python
+
+# Optional: GPU memory reporting used by the render-time benchmark
+# (cross_spectral_render_w_same_view.py). Ignored automatically when unavailable.
+nvidia-ml-py

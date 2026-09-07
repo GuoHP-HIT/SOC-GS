@@ -1,0 +1,29 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# --- Experiment artifacts (never commit) ---
+datasets/
+logs/
+result/
+render/
+stack_results/
+output/
+*.parquet
+*.npy
+*.pt
+*.pth
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store
+
+# --- Internal reference material (kept out of the release) ---
+_analysis/
+_ref/
