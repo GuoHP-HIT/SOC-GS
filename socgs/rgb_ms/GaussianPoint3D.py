@@ -1,7 +1,6 @@
 # %%
 import numpy as np
 import taichi as ti
-import torch
 import taichi.math
 from ..common.SphericalHarmonics import SphericalHarmonics, vec16f
 from ..common.utils import ti_sigmoid, ti_sigmoid_with_jacobian, quaternion_rotate

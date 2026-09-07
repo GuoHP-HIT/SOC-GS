@@ -6,7 +6,6 @@ from .GaussianPointCloudRasterisation import GaussianPointCloudRasterisation, \
 from dataclass_wizard import YAMLWizard
 from typing import Optional
 import taichi as ti
-import matplotlib.pyplot as plt
 
 # RGB_FX_FY = 4753.35413581782 * 4720.84268099054 / ((4112*3008)/(1024 * 1392))
 # MS_FX_FY = 503.40783691 * 504.63809204 / ((254*510)/(240 * 496))

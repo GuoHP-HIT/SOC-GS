@@ -1,44 +1,32 @@
 # %%
 from ..common.GaussianPointCloudScene import GaussianPointCloudScene
-from ..common.pose import calculate_output_c2w, make_c2w, LearnPose
+from ..common.pose import LearnPose
 from .ImagePoseDataset import ImagePoseDataset
-from ..common.Camera import CameraInfo
 from .GaussianPointCloudRasterisation import GaussianPointCloudRasterisation
 from .GaussianPointAdaptiveController import GaussianPointAdaptiveController
 from ..common.LossFunction import LossFunction
-from ..common.utils import quaternion_to_rotation_matrix_torch, SE3_to_quaternion_and_translation_torch
 import torch
-import torch.nn as nn
-import argparse
 from dataclass_wizard import YAMLWizard
 from dataclasses import dataclass
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.utils import make_grid
 import torchvision.transforms as transforms
 from pytorch_msssim import ssim
 from tqdm import tqdm
 import taichi as ti
 import os
-import matplotlib.pyplot as plt
-from matplotlib import cm
 from collections import deque
 import numpy as np
 from typing import Optional
 import os
-import time
-import random
 import cv2
-
 
 # from pyecharts.charts import Scatter3D
 # scatter3D = Scatter3D()
-
 
 def cycle(dataloader):
     while True:
         for data in dataloader:
             yield data
-
 
 class GaussianPointCloudTrainer:
     @dataclass
@@ -804,35 +792,6 @@ class GaussianPointCloudTrainer:
         self.scene.to_parquet(os.path.join(self.config.output_model_dir, f"final_scene.parquet"))
 
     @staticmethod
-    def _easy_cmap(x: torch.Tensor):
-        x_rgb = torch.zeros((3, x.shape[0], x.shape[1]), dtype=torch.float32, device=x.device)
-        x_rgb[0] = torch.clamp(x, 0, 10) / 10.
-        x_rgb[1] = torch.clamp(x - 10, 0, 50) / 50.
-        x_rgb[2] = torch.clamp(x - 60, 0, 200) / 200.
-        return 1. - x_rgb
-
-    @staticmethod
-    def _downsample_image_and_camera_info(image: torch.Tensor, camera_info: CameraInfo, downsample_factor: int):
-        camera_height = camera_info.camera_height // downsample_factor
-        camera_width = camera_info.camera_width // downsample_factor
-        image = transforms.functional.resize(image, size=(camera_height, camera_width), antialias=True)
-        camera_width = camera_width - camera_width % 16
-        camera_height = camera_height - camera_height % 16
-        image = image[:3, :camera_height, :camera_width].contiguous()
-        camera_intrinsics = camera_info.camera_intrinsics
-        camera_intrinsics = camera_intrinsics.clone()
-        camera_intrinsics[0, 0] /= downsample_factor
-        camera_intrinsics[1, 1] /= downsample_factor
-        camera_intrinsics[0, 2] /= downsample_factor
-        camera_intrinsics[1, 2] /= downsample_factor
-        resized_camera_info = CameraInfo(
-            camera_intrinsics=camera_intrinsics,
-            camera_height=camera_height,
-            camera_width=camera_width,
-            camera_id=camera_info.camera_id)
-        return image, resized_camera_info
-
-    @staticmethod
     def qt2c2w(q_pointcloud_camera: torch.Tensor, t_pointcloud_camera: torch.Tensor):
         RGB_rotation = quaternion_to_rotation_matrix_torch(q_pointcloud_camera).squeeze()
         RGB_translation = t_pointcloud_camera.T
@@ -851,53 +810,6 @@ class GaussianPointCloudTrainer:
             return psnr_score, ssim_score
 
     @staticmethod
-    def _plot_grad_histogram(grad_input: GaussianPointCloudRasterisation.BackwardValidPointHookInput, writer,
-                             iteration):
-        with torch.no_grad():
-            xyz_grad = grad_input.grad_point_in_camera
-            uv_grad = grad_input.grad_viewspace
-            feature_grad = grad_input.grad_pointfeatures_in_camera
-            q_grad = feature_grad[:, :4]
-            s_grad = feature_grad[:, 4:7]
-            alpha_grad = feature_grad[:, 7]
-            r_grad = feature_grad[:, 8:24]
-            g_grad = feature_grad[:, 24:40]
-            b_grad = feature_grad[:, 40:56]
-            num_overlap_tiles = grad_input.num_overlap_tiles
-            num_affected_pixels = grad_input.num_affected_pixels
-            writer.add_histogram("grad/xyz_grad", xyz_grad, iteration)
-            writer.add_histogram("grad/uv_grad", uv_grad, iteration)
-            writer.add_histogram("grad/q_grad", q_grad, iteration)
-            writer.add_histogram("grad/s_grad", s_grad, iteration)
-            writer.add_histogram("grad/alpha_grad", alpha_grad, iteration)
-            writer.add_histogram("grad/r_grad", r_grad, iteration)
-            writer.add_histogram("grad/g_grad", g_grad, iteration)
-            writer.add_histogram("grad/b_grad", b_grad, iteration)
-            writer.add_histogram("value/num_overlap_tiles", num_overlap_tiles, iteration)
-            writer.add_histogram("value/num_affected_pixels", num_affected_pixels, iteration)
-
-    @staticmethod
-    def _plot_value_histogram(scene: GaussianPointCloudScene, writer, iteration):
-        with torch.no_grad():
-            valid_point_cloud = scene.point_cloud[scene.point_invalid_mask == 0]
-            valid_point_cloud_features = scene.point_cloud_features[scene.point_invalid_mask == 0]
-            num_valid_points = valid_point_cloud.shape[0]
-            q = valid_point_cloud_features[:, :4]
-            s = valid_point_cloud_features[:, 4:7]
-            alpha = valid_point_cloud_features[:, 7]
-            r = valid_point_cloud_features[:, 8:24]
-            g = valid_point_cloud_features[:, 24:40]
-            b = valid_point_cloud_features[:, 40:56]
-            writer.add_scalar("value/num_valid_points", num_valid_points, iteration)
-            # print(f"num_valid_points={num_valid_points};")
-            writer.add_histogram("value/q", q, iteration)
-            writer.add_histogram("value/s", s, iteration)
-            writer.add_histogram("value/alpha", alpha, iteration)
-            writer.add_histogram("value/sigmoid_alpha", torch.sigmoid(alpha), iteration)
-            writer.add_histogram("value/r", r, iteration)
-            writer.add_histogram("value/g", g, iteration)
-            writer.add_histogram("value/b", b, iteration)
-
     def validation_for_cross_spectral(self, val_data_loader, iteration):
         os.makedirs(self.config.val_image_save_path, exist_ok=True)
         with torch.no_grad():
@@ -1082,93 +994,6 @@ class GaussianPointCloudTrainer:
         del gaussian_point_cloud_rasterisation_input, gaussian_point_cloud_rasterisation_input_ms
         del rasterized_image, rasterized_image_ms, rasterized_depth, rasterized_depth_ms, pixel_valid_point_count, pixel_valid_point_count_ms
         del loss_RGB, loss_MS, rgb_image_gt, rgb_image_pred, ms_image_gt, ms_image_pred
-
-    def validation_for_pose_estimate(self, val_data_loader, iteration):
-        os.makedirs(self.config.val_image_save_path, exist_ok=True)
-        with torch.no_grad():
-            for idx, val_data in enumerate(tqdm(val_data_loader)):
-                image_gt, q_pointcloud_camera, t_pointcloud_camera, image_gt_multispectral, q_pointcloud_camera_multispectral, t_pointcloud_camera_multispectral, camera_info, camera_info_ms = val_data
-                assert camera_info.camera_id == camera_info_ms.camera_id
-                c2w_RGB = self.qt2c2w(q_pointcloud_camera, t_pointcloud_camera)
-                # get estimated multispectral image pose
-                q_pointcloud_camera_multispectral, t_pointcloud_camera_multispectral, r_, t_ = self.pose_estimated_multispectral(
-                    camera_info.camera_id)
-
-                # send data to cuda
-                image_gt = image_gt.cuda()
-                image_gt_multispectral = image_gt_multispectral.cuda()
-                q_pointcloud_camera = q_pointcloud_camera.cuda()
-                t_pointcloud_camera = t_pointcloud_camera.cuda()
-                q_pointcloud_camera_multispectral = q_pointcloud_camera_multispectral.cuda()
-                t_pointcloud_camera_multispectral = t_pointcloud_camera_multispectral.cuda()
-                camera_info.camera_intrinsics = camera_info.camera_intrinsics.cuda()
-                camera_info.camera_intrinsics_multispectral = camera_info.camera_intrinsics_multispectral.cuda()
-                # make taichi happy
-                camera_info.camera_width = int(camera_info.camera_width)
-                camera_info.camera_height = int(camera_info.camera_height)
-                camera_info.camera_width_multispectral = int(camera_info.camera_width_multispectral)
-                camera_info.camera_height_multispectral = int(camera_info.camera_height_multispectral)
-                # set RGB rasterisation options
-                gaussian_point_cloud_rasterisation_input = GaussianPointCloudRasterisation.GaussianPointCloudRasterisationInput(
-                    point_cloud=self.scene.point_cloud,
-                    point_cloud_features=self.scene.point_cloud_features,
-                    point_object_id=self.scene.point_object_id,
-                    point_invalid_mask=self.scene.point_invalid_mask,
-                    camera_info=camera_info_ms,
-                    q_pointcloud_camera=q_pointcloud_camera_multispectral,
-                    t_pointcloud_camera=t_pointcloud_camera_multispectral,
-                    q_pointcloud_camera_multispectral=q_pointcloud_camera_multispectral,
-                    t_pointcloud_camera_multispectral=t_pointcloud_camera_multispectral,
-                    color_max_sh_band=3,
-                )
-
-                # render validation RGB image
-                rasterized_image, rasterized_depth, pixel_valid_point_count = \
-                    self.rasterisation(gaussian_point_cloud_rasterisation_input,
-                                       current_train_stage='val_RGB', )
-                torch.cuda.synchronize()
-
-                image_pred_to_gray = 0.299 * rasterized_image[:, :, 0] + 0.587 * rasterized_image[:, :,
-                                                                                 1] + 0.114 * rasterized_image[:, :, 2]
-                image_pred_to_gray = image_pred_to_gray.unsqueeze(2)
-                # clip to [0, 1]
-                image_pred_to_gray = torch.clamp(image_pred_to_gray, min=0, max=1)
-                # hxwx3->3xhxw
-                image_pred_to_gray = image_pred_to_gray.permute(2, 0, 1)
-                image_pred_to_gray = image_pred_to_gray.repeat(3, 1, 1)
-
-                pose_pred_name = 'pose_pred_' + 'iter_' + str(iteration) + '_id_' + str(
-                    camera_info.camera_id) + '.jpg'
-                ms_image_gt_name = 'pose_pred_gt_' + '_id_' + str(camera_info.camera_id) + '.jpg'
-                rgb_image_pred_path = os.path.join(self.config.val_image_save_path, pose_pred_name)
-                ms_image_gt_path = os.path.join(self.config.val_image_save_path, ms_image_gt_name)
-                rgb_image_pred_to_gray = self.toPIL(image_pred_to_gray)
-                rgb_image_pred_to_gray.save(rgb_image_pred_path)
-                ms_image_gt = self.toPIL(image_gt_multispectral)
-                ms_image_gt.save(ms_image_gt_path)
-            self.store_current_pose_list(iteration, modal='ms', num_cameras=len(val_data_loader))
-
-            # # save 3DGS to parquet
-            # self.scene.to_parquet(
-            #     os.path.join(self.config.output_model_dir, f"scene_{iteration}.parquet"))
-            # if mean_psnr_score_RGB > self.best_psnr_score:
-            #     self.best_psnr_score = mean_psnr_score_RGB
-            #     self.scene.to_parquet(os.path.join(self.config.output_model_dir, f"best_scene.parquet"))
-
-        del image_gt, q_pointcloud_camera, t_pointcloud_camera, image_gt_multispectral, q_pointcloud_camera_multispectral, t_pointcloud_camera_multispectral, camera_info, camera_info_ms
-        del gaussian_point_cloud_rasterisation_input
-        del rasterized_image, rasterized_depth, pixel_valid_point_count
-        del ms_image_gt, rgb_image_pred_to_gray
-
-    def store_current_pose(self, iteration, modal, r_, t_):
-        with torch.no_grad():
-            r_numpy = r_.detach().cpu().numpy()
-            t_numpy = t_.detach().cpu().numpy()
-            np.save(os.path.join(self.config.summary_writer_log_dir,
-                                 modal + '_iter_' + str(iteration).zfill(6)) + '_r_', r_numpy)
-            np.save(os.path.join(self.config.summary_writer_log_dir,
-                                 modal + '_iter_' + str(iteration).zfill(6)) + '_t_', t_numpy)
-        return
 
     def store_current_pose_list(self, iteration, modal, num_cameras):
         q_list = []

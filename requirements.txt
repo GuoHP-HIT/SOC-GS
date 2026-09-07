@@ -15,6 +15,7 @@ tensorboard
 plyfile
 tqdm
 opencv-python
+kornia
 
 # Optional: GPU memory reporting used by the render-time benchmark
 # (cross_spectral_render_w_same_view.py). Ignored automatically when unavailable.
