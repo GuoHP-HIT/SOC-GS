@@ -586,10 +586,10 @@ class GaussianPointCloudTrainer:
 
                     camera_info_ir.camera_intrinsics = camera_info_ir.camera_intrinsics.cuda()
                     camera_info_ir.camera_intrinsics_infrared = camera_info_ir.camera_intrinsics_infrared.cuda()
-                    camera_info_ir.camera_width = int(camera_info_ms.camera_width_infrared)
-                    camera_info_ir.camera_height = int(camera_info_ms.camera_height_infrared)
-                    camera_info_ir.camera_width_infrared = int(camera_info_ms.camera_width_infrared)
-                    camera_info_ir.camera_height_infrared = int(camera_info_ms.camera_height_infrared)
+                    camera_info_ir.camera_width = int(camera_info_ir.camera_width_infrared)
+                    camera_info_ir.camera_height = int(camera_info_ir.camera_height_infrared)
+                    camera_info_ir.camera_width_infrared = int(camera_info_ir.camera_width_infrared)
+                    camera_info_ir.camera_height_infrared = int(camera_info_ir.camera_height_infrared)
                     # use estimated MS pose to render MS images only
                     gaussian_point_cloud_rasterisation_input_ir = GaussianPointCloudRasterisation.GaussianPointCloudRasterisationInput(
                         point_cloud=self.scene.point_cloud,
@@ -1387,8 +1387,8 @@ class GaussianPointCloudTrainer:
                 print('Best Metric RGB', self.best_psnr_score, self.best_ssim_score)
                 print('Best Metric MS', self.best_psnr_score_ms, self.best_ssim_score_ms)
                 print('Best Metric IR', self.best_psnr_score_ir, self.best_ssim_score_ir)
-            if mean_psnr_score_RGB + mean_psnr_score_MS + mean_psnr_score_RGB > self.best_psnr_score_store_parquet:
-                self.best_psnr_score_store_parquet = mean_psnr_score_RGB + mean_psnr_score_MS + mean_psnr_score_RGB
+            if mean_psnr_score_RGB + mean_psnr_score_MS + mean_psnr_score_IR > self.best_psnr_score_store_parquet:
+                self.best_psnr_score_store_parquet = mean_psnr_score_RGB + mean_psnr_score_MS + mean_psnr_score_IR
                 self.scene.to_parquet(os.path.join(self.config.output_model_dir, f"best_scene.parquet"))
                 print(f"<Best Parquet saved!> Metric RGB:{mean_psnr_score_RGB},"
                       f"Metric MS:{mean_psnr_score_MS}, Metric IR:{mean_psnr_score_IR}")

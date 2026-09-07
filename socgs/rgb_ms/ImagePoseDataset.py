@@ -23,6 +23,7 @@ import pandas as pd
 import PIL.Image
 import torch
 import torch.utils.data
+import torchvision
 import torchvision.transforms as transforms
 
 from ..common.Camera import CameraInfo
