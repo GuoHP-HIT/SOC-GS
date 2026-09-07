@@ -1,39 +1,26 @@
 import torch
 import taichi as ti
 from dataclasses import dataclass
-from ..common.Camera import CameraInfo, CameraView
-from torch.cuda.amp import custom_bwd, custom_fwd
-from ..common.utils import (torch_type, data_type, ti2torch, torch2ti,
-                    ti2torch_grad, torch2ti_grad,
-                    get_ray_origin_and_direction_by_uv,
-                    get_point_probability_density_from_2d_gaussian_normalized,
-                    grad_point_probability_density_2d_normalized,
-                    taichi_inverse_SE3,
-                    inverse_SE3_qt_torch,
-                    get_point_conic_and_rescale,
-                    get_point_probability_density_from_conic_and_rescale,
-                    grad_point_probability_density_from_conic_and_rescale,
-                    rotation_matrix_to_quaternion_torch,
-                    quaternion_to_rotation_matrix_torch,
-                    SE3_to_quaternion_and_translation_torch,
-                    transform_matrix_from_quaternion_and_translation_torch,
-                    torch_inverse_SE3,
-                    inverse_SE3)
-from .GaussianPoint3D import GaussianPoint3D, project_point_to_camera, rotation_matrix_from_quaternion, \
-    transform_matrix_from_quaternion_and_translation
-from ..common.SphericalHarmonics import SphericalHarmonics, vec16f
-from typing import List, Tuple, Optional, Callable, Union
+from ..common.Camera import CameraInfo
+from ..common.utils import (
+    taichi_inverse_SE3, inverse_SE3_qt_torch,
+    get_point_conic_and_rescale,
+    get_point_probability_density_from_conic_and_rescale,
+    grad_point_probability_density_from_conic_and_rescale,
+    rotation_matrix_to_quaternion_torch, quaternion_to_rotation_matrix_torch,
+    SE3_to_quaternion_and_translation_torch,
+    transform_matrix_from_quaternion_and_translation_torch, inverse_SE3)
+from .GaussianPoint3D import (
+    GaussianPoint3D, project_point_to_camera, transform_matrix_from_quaternion_and_translation)
+from ..common.SphericalHarmonics import vec16f
+from typing import Optional, Callable
 from dataclass_wizard import YAMLWizard
 import kornia
 import numpy as np
-import os
 import cv2
 import math
 
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-mat4x4f = ti.types.matrix(n=4, m=4, dtype=ti.f32)
-mat4x3f = ti.types.matrix(n=4, m=3, dtype=ti.f32)
 vec5f = ti.types.vector(n=5, dtype=ti.f32)
 
 BOUNDARY_TILES = 3
@@ -1212,180 +1199,6 @@ def gaussian_point_rasterisation(
         rasterized_image[pixel_v, pixel_u, 0] = accumulated_color[0]
         rasterized_image[pixel_v, pixel_u, 1] = accumulated_color[1]
         rasterized_image[pixel_v, pixel_u, 2] = accumulated_color[2]
-        if not rgb_only:
-            rasterized_depth[pixel_v, pixel_u] = accumulated_depth / \
-                                                 ti.max(depth_normalization_factor, 1e-6)
-            pixel_accumulated_alpha[pixel_v, pixel_u] = 1. - T_i
-            pixel_offset_of_last_effective_point[pixel_v,
-                                                 pixel_u] = offset_of_last_effective_point
-            pixel_valid_point_count[pixel_v, pixel_u] = valid_point_count
-    # end of pixel loop
-
-
-@ti.kernel
-def gaussian_point_rasterisation_full_channel(
-        camera_height: ti.i32,
-        camera_width: ti.i32,
-        # (tiles_per_row * tiles_per_col)
-        tile_points_start: ti.types.ndarray(ti.i32, ndim=1),
-        # (tiles_per_row * tiles_per_col)
-        tile_points_end: ti.types.ndarray(ti.i32, ndim=1),
-        # (K) the offset of the point in point_id_in_camera_list
-        point_offset_with_sort_key: ti.types.ndarray(ti.i32, ndim=1),
-        point_uv: ti.types.ndarray(ti.f32, ndim=2),  # (M, 2)
-        point_in_camera: ti.types.ndarray(ti.f32, ndim=2),  # (M, 3)
-        point_uv_conic_and_rescale: ti.types.ndarray(ti.f32, ndim=2),  # (M, 4)
-        point_alpha_after_activation: ti.types.ndarray(ti.f32, ndim=1),  # (M)
-        point_color: ti.types.ndarray(ti.f32, ndim=2),  # (M, 4)
-        rasterized_image: ti.types.ndarray(ti.f32, ndim=3),  # (H, W, 4) # output(3RGB+1MS)
-        # (H, W) # output, Note: think about handling the occlusion
-        rasterized_depth: ti.types.ndarray(ti.f32, ndim=2),
-        # (H, W) # output
-        pixel_accumulated_alpha: ti.types.ndarray(ti.f32, ndim=2),
-        # (H, W)
-        # output
-        pixel_offset_of_last_effective_point: ti.types.ndarray(ti.i32, ndim=2),
-        pixel_valid_point_count: ti.types.ndarray(ti.i32, ndim=2),  # output
-        rgb_only: ti.template(),  # input
-):
-    ti.loop_config(block_dim=(TILE_WIDTH * TILE_HEIGHT))
-    for pixel_offset in ti.ndrange(camera_height * camera_width):  # 1920*1080
-        # initialize
-        # put each TILE_WIDTH * TILE_HEIGHT tile in the same CUDA thread group (block)
-        tile_id = pixel_offset // (TILE_WIDTH * TILE_HEIGHT)
-        # can wait for other threads in the same group, also have a shared memory.
-        thread_id = pixel_offset % (TILE_WIDTH * TILE_HEIGHT)
-        tile_u = ti.cast(tile_id % (camera_width // TILE_WIDTH),
-                         ti.i32)  # tile position
-        tile_v = ti.cast(tile_id // (camera_width // TILE_WIDTH), ti.i32)
-        # pixel position in tile (The relative position of the pixel in the tile)
-        pixel_offset_in_tile = pixel_offset - \
-                               tile_id * (TILE_WIDTH * TILE_HEIGHT)
-        pixel_u = tile_u * TILE_WIDTH + pixel_offset_in_tile % TILE_WIDTH
-        pixel_v = tile_v * TILE_HEIGHT + pixel_offset_in_tile // TILE_WIDTH
-        start_offset = tile_points_start[tile_id]
-        end_offset = tile_points_end[tile_id]
-        # The initial value of accumulated alpha (initial value of accumulated multiplication)
-        T_i = 1.0
-        accumulated_color = ti.math.vec4([0., 0., 0., 0.])
-        accumulated_depth = 0.
-        depth_normalization_factor = 0.
-        offset_of_last_effective_point = start_offset
-        valid_point_count: ti.i32 = 0
-
-        # open the shared memory
-        tile_point_uv = ti.simt.block.SharedArray(
-            (2, ti.static(TILE_WIDTH * TILE_HEIGHT)), dtype=ti.f32)
-        tile_point_uv_conic_and_rescale = ti.simt.block.SharedArray(
-            (4, ti.static(TILE_WIDTH * TILE_HEIGHT)), dtype=ti.f32)
-        tile_point_alpha = ti.simt.block.SharedArray(
-            ti.static(TILE_WIDTH * TILE_HEIGHT), dtype=ti.f32)
-        tile_point_color = ti.simt.block.SharedArray(
-            (4, ti.static(TILE_WIDTH * TILE_HEIGHT)), dtype=ti.f32)
-        tile_point_depth = ti.simt.block.SharedArray(
-            ti.static(TILE_WIDTH * TILE_HEIGHT), dtype=ti.f32)
-
-        num_points_in_tile = end_offset - start_offset
-        num_point_groups = (num_points_in_tile + ti.static(TILE_WIDTH *
-                                                           TILE_HEIGHT - 1)) // ti.static(TILE_WIDTH * TILE_HEIGHT)
-        pixel_saturated = False
-        # for idx_point_offset_with_sort_key in range(start_offset, end_offset):
-        for point_group_id in range(num_point_groups):
-            # The original implementation uses a predicate block the next update for shared memory until all threads finish the current update
-            # but it is not supported by Taichi yet, and experiments show that it does not affect the performance
-            """
-            tile_saturated = ti.simt.block.sync_all_nonzero(predicate=ti.cast(
-                pixel_saturated, ti.i32))
-            if tile_saturated != 0:
-                break
-            """
-            ti.simt.block.sync()
-            # load point data into shared memory
-            # [start_offset, end_offset)->[0, end_offset - start_offset)
-            to_load_idx_point_offset_with_sort_key = start_offset + \
-                                                     point_group_id * \
-                                                     ti.static(TILE_WIDTH * TILE_HEIGHT) + thread_id
-            if to_load_idx_point_offset_with_sort_key < end_offset:
-                to_load_point_offset = point_offset_with_sort_key[to_load_idx_point_offset_with_sort_key]
-                tile_point_uv[0, thread_id] = point_uv[to_load_point_offset, 0]
-                tile_point_uv[1, thread_id] = point_uv[to_load_point_offset, 1]
-                tile_point_uv_conic_and_rescale[0, thread_id] = point_uv_conic_and_rescale[to_load_point_offset, 0]
-                tile_point_uv_conic_and_rescale[1, thread_id] = point_uv_conic_and_rescale[to_load_point_offset, 1]
-                tile_point_uv_conic_and_rescale[2, thread_id] = point_uv_conic_and_rescale[to_load_point_offset, 2]
-                tile_point_uv_conic_and_rescale[3, thread_id] = point_uv_conic_and_rescale[to_load_point_offset, 3]
-                if not rgb_only:
-                    tile_point_depth[thread_id] = point_in_camera[to_load_point_offset, 2]
-                tile_point_alpha[thread_id] = point_alpha_after_activation[to_load_point_offset]
-
-                tile_point_color[0,
-                                 thread_id] = point_color[to_load_point_offset, 0]
-                tile_point_color[1,
-                                 thread_id] = point_color[to_load_point_offset, 1]
-                tile_point_color[2,
-                                 thread_id] = point_color[to_load_point_offset, 2]
-                tile_point_color[3,
-                                 thread_id] = point_color[to_load_point_offset, 3]
-
-            ti.simt.block.sync()
-            max_point_group_offset: ti.i32 = ti.min(
-                ti.static(TILE_WIDTH * TILE_HEIGHT),
-                num_points_in_tile - point_group_id * ti.static(TILE_WIDTH * TILE_HEIGHT))
-            for point_group_offset in range(max_point_group_offset):
-                if pixel_saturated:
-                    break
-                # forward rendering process
-                idx_point_offset_with_sort_key: ti.i32 = start_offset + \
-                                                         point_group_id * \
-                                                         ti.static(TILE_WIDTH * TILE_HEIGHT) + point_group_offset
-
-                uv = ti.math.vec2(
-                    [tile_point_uv[0, point_group_offset], tile_point_uv[1, point_group_offset]])
-                uv_conic_and_rescale = ti.math.vec4([tile_point_uv_conic_and_rescale[0, point_group_offset],
-                                                     tile_point_uv_conic_and_rescale[1, point_group_offset],
-                                                     tile_point_uv_conic_and_rescale[2, point_group_offset],
-                                                     tile_point_uv_conic_and_rescale[3, point_group_offset]])
-                point_alpha_after_activation_value = tile_point_alpha[point_group_offset]
-                color = ti.math.vec4([tile_point_color[0, point_group_offset], tile_point_color[1, point_group_offset],
-                                      tile_point_color[2, point_group_offset], tile_point_color[3, point_group_offset]])
-
-                gaussian_alpha = get_point_probability_density_from_conic_and_rescale(
-                    xy=ti.math.vec2([pixel_u + 0.5, pixel_v + 0.5]),
-                    gaussian_mean=uv,
-                    conic_and_rescale=uv_conic_and_rescale,
-                )
-                alpha = gaussian_alpha * point_alpha_after_activation_value
-                # from paper: we skip any blending updates with 𝛼 < 𝜖 (we choose 𝜖 as 1
-                # 255 ) and also clamp 𝛼 with 0.99 from above.
-                # print(
-                #     f"({pixel_v}, {pixel_u}, {point_offset}), alpha: {alpha}, accumulated_alpha: {accumulated_alpha}")
-                if alpha < 1. / 255.:
-                    continue
-                alpha = ti.min(alpha, 0.99)
-                # from paper: before a Gaussian is included in the forward rasterization
-                # pass, we compute the accumulated opacity if we were to include it
-                # and stop front-to-back blending before it can exceed 0.9999.
-                next_T_i = T_i * (1 - alpha)
-                if next_T_i < 0.0001:
-                    pixel_saturated = True
-                    continue  # somehow faster than directly breaking
-                offset_of_last_effective_point = idx_point_offset_with_sort_key + 1
-                accumulated_color += color * alpha * T_i
-
-                if not rgb_only:
-                    # Weighted depth for all valid points.
-                    depth = tile_point_depth[point_group_offset]
-                    accumulated_depth += depth * alpha * T_i
-                    depth_normalization_factor += alpha * T_i
-                    valid_point_count += 1
-                T_i = next_T_i
-            # end of point group loop
-
-        # end of point group id loop
-
-        rasterized_image[pixel_v, pixel_u, 0] = accumulated_color[0]
-        rasterized_image[pixel_v, pixel_u, 1] = accumulated_color[1]
-        rasterized_image[pixel_v, pixel_u, 2] = accumulated_color[2]
-        rasterized_image[pixel_v, pixel_u, 3] = accumulated_color[3]
         if not rgb_only:
             rasterized_depth[pixel_v, pixel_u] = accumulated_depth / \
                                                  ti.max(depth_normalization_factor, 1e-6)

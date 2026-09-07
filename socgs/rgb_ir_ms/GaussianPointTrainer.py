@@ -1,45 +1,31 @@
 # %%
 from ..common.GaussianPointCloudScene import GaussianPointCloudScene
-from ..common.pose import calculate_output_c2w, make_c2w, LearnPose
+from ..common.pose import LearnPose
 from .ImagePoseDataset import ImagePoseDataset
-from ..common.Camera import CameraInfo
 from .GaussianPointCloudRasterisation import GaussianPointCloudRasterisation
 from .GaussianPointAdaptiveController import GaussianPointAdaptiveController
 from ..common.LossFunction import LossFunction
-from ..common.utils import quaternion_to_rotation_matrix_torch, SE3_to_quaternion_and_translation_torch
 import torch
-import torch.nn as nn
-import argparse
 from dataclass_wizard import YAMLWizard
 from dataclasses import dataclass
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.utils import make_grid
 import torchvision.transforms as transforms
 from pytorch_msssim import ssim
 from tqdm import tqdm
 import taichi as ti
 import os
-import matplotlib.pyplot as plt
-from matplotlib import cm
 from collections import deque
 import numpy as np
 from typing import Optional
-import os
-import time
-import random
 import cv2
-
-
 
 # from pyecharts.charts import Scatter3D
 # scatter3D = Scatter3D()
-
 
 def cycle(dataloader):
     while True:
         for data in dataloader:
             yield data
-
 
 class GaussianPointCloudTrainer:
     @dataclass
@@ -1143,51 +1129,12 @@ class GaussianPointCloudTrainer:
             # only optimize IR color
             optimizer.step()
 
-
         self.store_current_pose_list(self.config.num_iterations + 3*self.config.ending_iterations, modal='ms',
                                      num_cameras=len(cs_train_data_loader))
         self.store_current_pose_list(self.config.num_iterations + 3*self.config.ending_iterations, modal='ir',
                                      num_cameras=len(cs_train_data_loader))
         self.validation_for_cross_spectral(val_data_loader, self.config.num_iterations + 3*self.config.ending_iterations)
         self.scene.to_parquet(os.path.join(self.config.output_model_dir, f"final_scene.parquet"))
-
-    @staticmethod
-    def _easy_cmap(x: torch.Tensor):
-        x_rgb = torch.zeros((3, x.shape[0], x.shape[1]), dtype=torch.float32, device=x.device)
-        x_rgb[0] = torch.clamp(x, 0, 10) / 10.
-        x_rgb[1] = torch.clamp(x - 10, 0, 50) / 50.
-        x_rgb[2] = torch.clamp(x - 60, 0, 200) / 200.
-        return 1. - x_rgb
-
-    @staticmethod
-    def _downsample_image_and_camera_info(image: torch.Tensor, camera_info: CameraInfo, downsample_factor: int):
-        camera_height = camera_info.camera_height // downsample_factor
-        camera_width = camera_info.camera_width // downsample_factor
-        image = transforms.functional.resize(image, size=(camera_height, camera_width), antialias=True)
-        camera_width = camera_width - camera_width % 16
-        camera_height = camera_height - camera_height % 16
-        image = image[:3, :camera_height, :camera_width].contiguous()
-        camera_intrinsics = camera_info.camera_intrinsics
-        camera_intrinsics = camera_intrinsics.clone()
-        camera_intrinsics[0, 0] /= downsample_factor
-        camera_intrinsics[1, 1] /= downsample_factor
-        camera_intrinsics[0, 2] /= downsample_factor
-        camera_intrinsics[1, 2] /= downsample_factor
-        resized_camera_info = CameraInfo(
-            camera_intrinsics=camera_intrinsics,
-            camera_height=camera_height,
-            camera_width=camera_width,
-            camera_id=camera_info.camera_id)
-        return image, resized_camera_info
-
-    @staticmethod
-    def qt2c2w(q_pointcloud_camera: torch.Tensor, t_pointcloud_camera: torch.Tensor):
-        RGB_rotation = quaternion_to_rotation_matrix_torch(q_pointcloud_camera).squeeze()
-        RGB_translation = t_pointcloud_camera.T
-        stack_rt = torch.cat([RGB_rotation, RGB_translation], dim=1)
-        extra_line = torch.tensor([0.0, 0.0, 0.0, 1.0]).view(1, 4)
-        c2w_RGB = torch.cat([stack_rt, extra_line], dim=0)
-        return c2w_RGB
 
     @staticmethod
     def _compute_pnsr_and_ssim(image_pred, image_gt):
@@ -1199,53 +1146,6 @@ class GaussianPointCloudTrainer:
             return psnr_score, ssim_score
 
     @staticmethod
-    def _plot_grad_histogram(grad_input: GaussianPointCloudRasterisation.BackwardValidPointHookInput, writer,
-                             iteration):
-        with torch.no_grad():
-            xyz_grad = grad_input.grad_point_in_camera
-            uv_grad = grad_input.grad_viewspace
-            feature_grad = grad_input.grad_pointfeatures_in_camera
-            q_grad = feature_grad[:, :4]
-            s_grad = feature_grad[:, 4:7]
-            alpha_grad = feature_grad[:, 7]
-            r_grad = feature_grad[:, 8:24]
-            g_grad = feature_grad[:, 24:40]
-            b_grad = feature_grad[:, 40:56]
-            num_overlap_tiles = grad_input.num_overlap_tiles
-            num_affected_pixels = grad_input.num_affected_pixels
-            writer.add_histogram("grad/xyz_grad", xyz_grad, iteration)
-            writer.add_histogram("grad/uv_grad", uv_grad, iteration)
-            writer.add_histogram("grad/q_grad", q_grad, iteration)
-            writer.add_histogram("grad/s_grad", s_grad, iteration)
-            writer.add_histogram("grad/alpha_grad", alpha_grad, iteration)
-            writer.add_histogram("grad/r_grad", r_grad, iteration)
-            writer.add_histogram("grad/g_grad", g_grad, iteration)
-            writer.add_histogram("grad/b_grad", b_grad, iteration)
-            writer.add_histogram("value/num_overlap_tiles", num_overlap_tiles, iteration)
-            writer.add_histogram("value/num_affected_pixels", num_affected_pixels, iteration)
-
-    @staticmethod
-    def _plot_value_histogram(scene: GaussianPointCloudScene, writer, iteration):
-        with torch.no_grad():
-            valid_point_cloud = scene.point_cloud[scene.point_invalid_mask == 0]
-            valid_point_cloud_features = scene.point_cloud_features[scene.point_invalid_mask == 0]
-            num_valid_points = valid_point_cloud.shape[0]
-            q = valid_point_cloud_features[:, :4]
-            s = valid_point_cloud_features[:, 4:7]
-            alpha = valid_point_cloud_features[:, 7]
-            r = valid_point_cloud_features[:, 8:24]
-            g = valid_point_cloud_features[:, 24:40]
-            b = valid_point_cloud_features[:, 40:56]
-            writer.add_scalar("value/num_valid_points", num_valid_points, iteration)
-            # print(f"num_valid_points={num_valid_points};")
-            writer.add_histogram("value/q", q, iteration)
-            writer.add_histogram("value/s", s, iteration)
-            writer.add_histogram("value/alpha", alpha, iteration)
-            writer.add_histogram("value/sigmoid_alpha", torch.sigmoid(alpha), iteration)
-            writer.add_histogram("value/r", r, iteration)
-            writer.add_histogram("value/g", g, iteration)
-            writer.add_histogram("value/b", b, iteration)
-
     def validation_for_cross_spectral(self, val_data_loader, iteration):
         os.makedirs(self.config.val_image_save_path, exist_ok=True)
         with torch.no_grad():

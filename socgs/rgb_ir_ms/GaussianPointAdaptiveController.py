@@ -6,7 +6,6 @@ from .GaussianPointCloudRasterisation import GaussianPointCloudRasterisation, \
 from dataclass_wizard import YAMLWizard
 from typing import Optional
 import taichi as ti
-import matplotlib.pyplot as plt
 
 
 @ti.kernel
