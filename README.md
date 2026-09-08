@@ -112,9 +112,10 @@ Taichi compiles its kernels on first use (a few minutes).
 │   │   ├── Camera.py, utils.py, SphericalHarmonics.py, LossFunction.py
 │   │   ├── pose.py                     # learnable cross-spectral pose (BA)
 │   │   ├── metrics.py                  # PSNR/SSIM (training + MATLAB-style)
-│   │   └── checkpoints.py              # pose snapshot discovery/loading
+│   │   ├── checkpoints.py              # pose snapshot discovery/loading
+│   │   └── rasterization.py            # shared buffers, tiling and geometry
 │   ├── rgb_ms/                         # bimodal model stack
-│   │   ├── GaussianPoint3D.py, GaussianPointCloudRasterisation.py,
+│   │   ├── GaussianPoint3D.py, rasterization.py, rasterization_types.py,
 │   │   ├── GaussianPointAdaptiveController.py, GaussianPointTrainer.py,
 │   │   ├── ImagePoseDataset.py, render.py
 │   └── rgb_ir_ms/                      # trimodal model stack (same names)
@@ -401,7 +402,10 @@ renderer writes GT and predictions at identical sizes.
 | `socgs/common/metrics.py` | torch PSNR/SSIM (training validation) and MATLAB-compatible PSNR/SSIM (evaluation) |
 | `socgs/common/checkpoints.py` | pose-snapshot discovery/loading, GPU-memory helper |
 | `socgs/<experiment>/GaussianPoint3D.py` | per-point Taichi struct and projection/covariance/colour math |
-| `socgs/<experiment>/GaussianPointCloudRasterisation.py` | differentiable tiled rasteriser (forward + backward kernels, per-stage gradient masks) |
+| `socgs/common/rasterization.py` | shared tile/buffer allocation and pose-initialisation geometry helpers |
+| `socgs/<experiment>/rasterization.py` | differentiable tiled rasteriser (forward + backward kernels, per-stage gradient masks) |
+| `socgs/<experiment>/rasterization_types.py` | rasteriser configuration, input and backward-hook data structures |
+| `socgs/<experiment>/GaussianPointCloudRasterisation.py` | compatibility import for scripts using the original module name |
 | `socgs/<experiment>/GaussianPointAdaptiveController.py` | per-modality accumulation and (cross-spectral) densification |
 | `socgs/<experiment>/GaussianPointTrainer.py` | multi-stage training / validation / checkpointing |
 | `socgs/<experiment>/ImagePoseDataset.py` | image+pose dataset with MS(/IR) directory pairing |

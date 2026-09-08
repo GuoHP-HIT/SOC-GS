@@ -1,8 +1,6 @@
-# %%
 import taichi as ti
 import taichi.math as tm
 
-# %%
 vec3f = ti.types.vector(3, float)
 vec5f = ti.types.vector(5, float)
 vec7f = ti.types.vector(7, float)

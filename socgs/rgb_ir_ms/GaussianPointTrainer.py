@@ -1,8 +1,7 @@
-# %%
 from ..common.GaussianPointCloudScene import GaussianPointCloudScene
 from ..common.pose import LearnPose
 from .ImagePoseDataset import ImagePoseDataset
-from .GaussianPointCloudRasterisation import GaussianPointCloudRasterisation
+from .rasterization import GaussianPointCloudRasterisation
 from .GaussianPointAdaptiveController import GaussianPointAdaptiveController
 from ..common.LossFunction import LossFunction
 import torch
@@ -17,10 +16,6 @@ import os
 from collections import deque
 import numpy as np
 from typing import Optional
-import cv2
-
-# from pyecharts.charts import Scatter3D
-# scatter3D = Scatter3D()
 
 def cycle(dataloader):
     while True:
@@ -158,8 +153,6 @@ class GaussianPointCloudTrainer:
         modality_cycle_pool = cycle(full_modality_pool)
         SH_cycle_pool = cycle(SH_initialize_pool)
 
-        previous_problematic_iteration = -1000
-        scatter_data_3D = []
         for iteration in tqdm(range(self.config.num_iterations)):
             '''
             Step1: single modality warmup
@@ -309,21 +302,6 @@ class GaussianPointCloudTrainer:
                             ms_image_gt_path = os.path.join(self.config.val_image_save_path, image_gt_name)
                             ms_image_gt = self.toPIL(image_gt_multispectral)
                             ms_image_gt.save(ms_image_gt_path)
-                            # plot keypoint in reference images
-                            img_pred_cv2 = cv2.imread(rgb_image_pred_path)
-                            keypoints_pred_tuple = tuple(map(tuple, keypoints_in_pred))
-                            # keypoints_pred_tuple = tuple(map(int, keypoints_pred_tuple))
-                            # for points in keypoints_pred_tuple:
-                            #     points = tuple(map(int, points))
-                            #     cv2.circle(img_pred_cv2, points, 2, (0, 0, 255), -1)
-                            # cv2.imwrite(rgb_image_pred_path, img_pred_cv2)
-                            img_gt_cv2 = cv2.imread(ms_image_gt_path)
-                            keypoints_gt_tuple = tuple(map(tuple, keypoints_in_gt))
-                            # for points in keypoints_gt_tuple:
-                            #     points = tuple(map(int, points))
-                            #     cv2.circle(img_gt_cv2, points, 2, (0, 0, 255), -1)
-                            # cv2.imwrite(ms_image_gt_path, img_gt_cv2)
-
                             # save pose to buffer
                             initial_ms_pose_r[camera_info.camera_id, :] = vector_rotation.squeeze(1)
                             initial_ms_pose_t[camera_info.camera_id, :] = vector_translation.squeeze(1)
@@ -417,20 +395,6 @@ class GaussianPointCloudTrainer:
                             ir_image_gt_path = os.path.join(self.config.val_image_save_path, image_gt_name)
                             ir_image_gt = self.toPIL(image_gt_infrared)
                             ir_image_gt.save(ir_image_gt_path)
-                            # plot keypoint in reference images
-                            img_pred_cv2 = cv2.imread(rgb_image_pred_path)
-                            keypoints_pred_tuple = tuple(map(tuple, keypoints_in_pred))
-                            # for points in keypoints_pred_tuple:
-                            #     points = tuple(map(int, points))
-                            #     cv2.circle(img_pred_cv2, points, 3, (255, 0, 0), 3)
-                            # cv2.imwrite(rgb_image_pred_path, img_pred_cv2)
-                            img_gt_cv2 = cv2.imread(ir_image_gt_path)
-                            keypoints_gt_tuple = tuple(map(tuple, keypoints_in_gt))
-                            # for points in keypoints_gt_tuple:
-                            #     points = tuple(map(int, points))
-                            #     cv2.circle(img_gt_cv2, points, 3, (255, 0, 0), 3)
-                            # cv2.imwrite(ir_image_gt_path, img_gt_cv2)
-
                             # save pose to buffer
                             initial_ir_pose_r[camera_info.camera_id, :] = vector_rotation.squeeze(1)
                             initial_ir_pose_t[camera_info.camera_id, :] = vector_translation.squeeze(1)
@@ -551,7 +515,6 @@ class GaussianPointCloudTrainer:
                     image_pred_ms = image_pred.unsqueeze(dim=2)
                     image_pred_ms = torch.clamp(image_pred_ms, min=0, max=1)
                     image_pred_ms = image_pred_ms.permute(2, 0, 1)
-                    # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
                     loss, l1_loss, ssim_loss = self.loss_function(
                         image_pred_ms,
                         image_gt_multispectral,
@@ -612,7 +575,6 @@ class GaussianPointCloudTrainer:
                     image_pred_ir = image_pred.unsqueeze(dim=2)
                     image_pred_ir = torch.clamp(image_pred_ir, min=0, max=1)
                     image_pred_ir = image_pred_ir.permute(2, 0, 1)
-                    # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
                     loss, l1_loss, ssim_loss = self.loss_function(
                         image_pred_ir,
                         image_gt_infrared,
@@ -679,7 +641,6 @@ class GaussianPointCloudTrainer:
                     image_pred_ms = image_pred.unsqueeze(dim=2)
                     image_pred_ms = torch.clamp(image_pred_ms, min=0, max=1)
                     image_pred_ms = image_pred_ms.permute(2, 0, 1)
-                    # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
                     loss, l1_loss, ssim_loss = self.loss_function(
                         image_pred_ms,
                         image_gt_multispectral,
@@ -743,7 +704,6 @@ class GaussianPointCloudTrainer:
                     image_pred_ir = image_pred.unsqueeze(dim=2)
                     image_pred_ir = torch.clamp(image_pred_ir, min=0, max=1)
                     image_pred_ir = image_pred_ir.permute(2, 0, 1)
-                    # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
                     loss, l1_loss, ssim_loss = self.loss_function(
                         image_pred_ir,
                         image_gt_infrared,
@@ -915,12 +875,6 @@ class GaussianPointCloudTrainer:
                 self.store_current_pose_list(iteration, modal='ms', num_cameras=len(cs_train_data_loader))
                 self.store_current_pose_list(iteration, modal='ir', num_cameras=len(cs_train_data_loader))
                 self.validation_for_cross_spectral(val_data_loader, iteration)
-            #
-            # if iteration > self.config.fine_bundle_adjustment_iteration and iteration % self.config.val_interval == 0:
-            #     # self.store_current_pose_list(iteration, modal='ms', num_cameras=len(cs_train_data_loader))
-            #     # self.store_current_pose_list(iteration, modal='ir', num_cameras=len(cs_train_data_loader))
-            #     self.validation_for_cross_spectral(val_data_loader, iteration)
-
             if iteration < self.config.warmup_single_modality_iterations:
                 del image_gt, q_pointcloud_camera, t_pointcloud_camera, camera_info, camera_info_ms, camera_info_ir
                 del gaussian_point_cloud_rasterisation_input, image_pred
@@ -942,10 +896,10 @@ class GaussianPointCloudTrainer:
                 del image_gt, image_gt_multispectral, q_pointcloud_camera, q_pointcloud_camera_multispectral, t_pointcloud_camera, t_pointcloud_camera_multispectral
                 del gaussian_point_cloud_rasterisation_input_ms, image_pred, loss, l1_loss, ssim_loss
                 del camera_info, camera_info_ms, rasterized_image, rasterized_depth, pixel_valid_point_count
-            elif iteration > self.config.fine_bundle_adjustment_iteration and current_modality == 'MS':
+            elif iteration > self.config.fine_bundle_adjustment_iteration and current_modality == 'IR':
                 del image_gt, image_gt_multispectral, q_pointcloud_camera, q_pointcloud_camera_multispectral, t_pointcloud_camera, t_pointcloud_camera_multispectral
-                del gaussian_point_cloud_rasterisation_input_ms, image_pred, loss, l1_loss, ssim_loss
-                del camera_info, camera_info_ms, rasterized_image, rasterized_depth, pixel_valid_point_count
+                del gaussian_point_cloud_rasterisation_input_ir, image_pred, loss, l1_loss, ssim_loss
+                del camera_info, camera_info_ir, rasterized_image, rasterized_depth, pixel_valid_point_count
                 del image_gt_infrared, q_pointcloud_camera_infrared, t_pointcloud_camera_infrared
 
         self.validation_for_cross_spectral(val_data_loader, self.config.num_iterations)
@@ -1057,7 +1011,6 @@ class GaussianPointCloudTrainer:
             image_pred_ms = image_pred.unsqueeze(dim=2)
             image_pred_ms = torch.clamp(image_pred_ms, min=0, max=1)
             image_pred_ms = image_pred_ms.permute(2, 0, 1)
-            # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
             loss, l1_loss, ssim_loss = self.loss_function(
                 image_pred_ms,
                 image_gt_multispectral,
@@ -1119,7 +1072,6 @@ class GaussianPointCloudTrainer:
             image_pred_ir = image_pred.unsqueeze(dim=2)
             image_pred_ir = torch.clamp(image_pred_ir, min=0, max=1)
             image_pred_ir = image_pred_ir.permute(2, 0, 1)
-            # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
             loss, l1_loss, ssim_loss = self.loss_function(
                 image_pred_ir,
                 image_gt_infrared,
@@ -1189,7 +1141,7 @@ class GaussianPointCloudTrainer:
                 t_pointcloud_camera_infrared = t_pointcloud_camera_infrared.cuda()
                 camera_info.camera_intrinsics = camera_info.camera_intrinsics.cuda()
                 camera_info.camera_intrinsics_multispectral = camera_info.camera_intrinsics_multispectral.cuda()
-                camera_info.camera_intrinsics_infrared = camera_info.camera_intrinsics_multispectral.cuda()
+                camera_info.camera_intrinsics_infrared = camera_info.camera_intrinsics_infrared.cuda()
 
                 # make taichi happy
                 camera_info.camera_width = int(camera_info.camera_width)
@@ -1522,7 +1474,6 @@ class GaussianPointCloudTrainer:
                 self.best_ssim_score = mean_ssim_score_RGB
                 self.scene.to_parquet(os.path.join(self.config.output_model_dir, f"best_scene.parquet"))
                 print('Best Metric RGB', self.best_psnr_score, self.best_ssim_score)
-                # print('Best Metric MS', self.best_psnr_score_ms, self.best_ssim_score_ms)
         del total_inference_time, total_loss_RGB, total_psnr_score_RGB, total_ssim_score_RGB,
         del image_gt, q_pointcloud_camera, t_pointcloud_camera, image_gt_multispectral, q_pointcloud_camera_multispectral, t_pointcloud_camera_multispectral, camera_info, camera_info_ms
         del gaussian_point_cloud_rasterisation_input

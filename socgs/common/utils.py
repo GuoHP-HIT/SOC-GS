@@ -489,8 +489,6 @@ def SE3_to_quaternion_and_translation_torch(
     R = transform[..., :3, :3]
     t = transform[..., :3, 3].type(torch.float32)
     q = rotation_matrix_to_quaternion_torch(R).type(torch.float32)
-    # q = torch.tensor(q, dtype=torch.float32, device=q.device)
-    # t = torch.tensor(t, dtype=torch.float32, device=t.device)
     return q, t
 
 def transform_matrix_from_quaternion_and_translation_torch(q, t):

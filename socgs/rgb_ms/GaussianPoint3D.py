@@ -1,7 +1,5 @@
-# %%
 import numpy as np
 import taichi as ti
-import taichi.math
 from ..common.SphericalHarmonics import SphericalHarmonics, vec16f
 from ..common.utils import ti_sigmoid, ti_sigmoid_with_jacobian, quaternion_rotate
 
@@ -853,7 +851,6 @@ class GaussianPoint3D:
         return self.translation + R @ S @ base
 
 
-# %%
 """
 ti.init(ti.cpu)
 

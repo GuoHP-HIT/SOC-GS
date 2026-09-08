@@ -10,11 +10,8 @@ import torchvision.transforms as transforms
 from ..common.Camera import CameraInfo
 from typing import Any
 from ..common.utils import SE3_to_quaternion_and_translation_torch
-from .GaussianPointCloudRasterisation import TILE_WIDTH, TILE_HEIGHT
+from .rasterization import TILE_WIDTH, TILE_HEIGHT
 
-# TILE_WIDTH = 16
-# TILE_HEIGHT = 16
-# MAX_RESOLUTION_TRAIN=4800
 MAX_RESOLUTION_TRAIN = 1600  # original taichi gaussian splatting setting, which according to the images size incorrect
 INTRINSICS_RGB = torch.tensor(np.array([[4753.35413581782, 0, 4112/2],
                                         [0, 4720.84268099054, 3008/2],
@@ -40,7 +37,6 @@ class ImagePoseDataset(torch.utils.data.Dataset):
             assert column in self.df.columns, f"column {column} is not in the dataset"
 
     def __len__(self):
-        # return 1 # for debugging
         return len(self.df)
 
     def _pandas_field_to_tensor(self, field: Any) -> torch.Tensor:
@@ -90,7 +86,8 @@ class ImagePoseDataset(torch.utils.data.Dataset):
         return image, image_multispectral, image_infrared, resized_camera_info
 
     @staticmethod
-    def _calculete_target_image_size(original_width, original_height):
+    def _calculate_target_image_size(original_width, original_height):
+        """Round the image size down to a multiple of the rasterization tile."""
         target_width = original_width - original_width % TILE_WIDTH
         target_height = original_height - original_height % TILE_HEIGHT
         return target_width, target_height
@@ -98,9 +95,7 @@ class ImagePoseDataset(torch.utils.data.Dataset):
     @staticmethod
     def _resize_image(image: torch.Tensor, info_camera_width: int, info_camera_height: int,
                       info_intrinsics: torch.Tensor):
-        # image = transforms.functional.resize(image, size=1024, max_size=1600, antialias=True)
         image = transforms.functional.resize(image, size=3008, max_size=4112, antialias=True)
-        # image = transforms.functional.resize(image, size=512, max_size=800, antialias=True)
         _, camera_height, camera_width = image.shape
         camera_width = camera_width - camera_width % TILE_WIDTH
         camera_height = camera_height - camera_height % TILE_HEIGHT
@@ -175,11 +170,11 @@ class ImagePoseDataset(torch.utils.data.Dataset):
         # we want image width and height to be always divisible by 16
         # so we crop the image
         camera_width, camera_height = \
-            ImagePoseDataset._calculete_target_image_size(camera_width, camera_height)
+            ImagePoseDataset._calculate_target_image_size(camera_width, camera_height)
         camera_width_multispectral, camera_height_multispectral = \
-            ImagePoseDataset._calculete_target_image_size(camera_width_multispectral, camera_height_multispectral)
+            ImagePoseDataset._calculate_target_image_size(camera_width_multispectral, camera_height_multispectral)
         camera_width_infrared, camera_height_infrared = \
-            ImagePoseDataset._calculete_target_image_size(camera_width_infrared, camera_height_infrared)
+            ImagePoseDataset._calculate_target_image_size(camera_width_infrared, camera_height_infrared)
         image = image[:3, :camera_height, :camera_width].contiguous()
         image_multispectral = \
             image_multispectral[:3, :camera_height_multispectral, :camera_width_multispectral].contiguous()

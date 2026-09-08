@@ -1,16 +1,11 @@
 import numpy as np
 import torch
 from dataclasses import dataclass
-from .GaussianPointCloudRasterisation import GaussianPointCloudRasterisation, \
+from .rasterization import GaussianPointCloudRasterisation, \
     load_point_cloud_row_into_gaussian_point_3d
 from dataclass_wizard import YAMLWizard
 from typing import Optional
 import taichi as ti
-
-# RGB_FX_FY = 4753.35413581782 * 4720.84268099054 / ((4112*3008)/(1024 * 1392))
-# MS_FX_FY = 503.40783691 * 504.63809204 / ((254*510)/(240 * 496))
-# OVER_RECONSTRUCTION_SCALE = RGB_FX_FY / MS_FX_FY
-
 
 @ti.kernel
 def compute_ellipsoid_offset(
@@ -280,9 +275,7 @@ class GaussianPointAdaptiveController:
             floater_mask_in_camera = ((num_affected_pixels > self.config.floater_near_camrea_num_pixels_threshold) & \
                                       (point_depth_in_camera < self.config.floater_depth_threshold))
 
-            # floater_mask_in_camera = (num_affected_pixels > self.config.floater_num_pixels_threshold)
             floater_point_id = point_id_in_camera_list[floater_mask_in_camera]
-            # floater_mask = average_num_affect_pixels > self.config.floater_num_pixels_threshold
             floater_mask[floater_point_id] = True
             floater_mask = floater_mask & (self.maintained_parameters.point_invalid_mask == 0)
 
@@ -295,7 +288,6 @@ class GaussianPointAdaptiveController:
         will_be_remove_mask = floater_mask | transparent_point_mask
 
         # find points that are under-reconstructed or over-reconstructed
-        # point_features_in_camera = pointcloud_features[point_id_in_camera_list]
         in_camera_will_be_remove_mask = floater_mask_in_camera | transparent_point_mask[point_id_in_camera_list]
         # shape: [num_points_in_camera, 2]
         grad_viewspace_norm = input_data.magnitude_grad_viewspace
@@ -384,9 +376,7 @@ class GaussianPointAdaptiveController:
             floater_mask_in_camera = ((num_affected_pixels > self.config.floater_near_camrea_num_pixels_threshold) & \
                                       (point_depth_in_camera < self.config.floater_depth_threshold))
 
-            # floater_mask_in_camera = (num_affected_pixels > self.config.floater_num_pixels_threshold)
             floater_point_id = point_id_in_camera_list[floater_mask_in_camera]
-            # floater_mask = average_num_affect_pixels > self.config.floater_num_pixels_threshold
             floater_mask[floater_point_id] = True
             floater_mask = floater_mask & (self.maintained_parameters.point_invalid_mask == 0)
 
@@ -399,7 +389,6 @@ class GaussianPointAdaptiveController:
         will_be_remove_mask = floater_mask | transparent_point_mask
 
         # find points that are under-reconstructed or over-reconstructed
-        # point_features_in_camera = pointcloud_features[point_id_in_camera_list]
         in_camera_will_be_remove_mask = floater_mask_in_camera | transparent_point_mask[point_id_in_camera_list]
         # shape: [num_points_in_camera, 2]
         grad_viewspace_norm = input_data.magnitude_grad_viewspace
@@ -563,13 +552,6 @@ class GaussianPointAdaptiveController:
                 self.densify_point_info.densify_size_reduction_factor[:num_of_densify_points_RGB]
 
             densify_point_id_MS = self.densify_point_info_ms.densify_point_id[:num_of_densify_points_MS]
-            # densify_point_id_MS_without_overlap = \
-            #     densify_point_id_MS[torch.isin(densify_point_id_MS, densify_point_id_RGB)]
-            # print(
-            #     f"<MS rasterisation densify> num_densify_without_overlap: {densify_point_id_MS_without_overlap.shape[0]}")
-            # self.maintained_parameters.pointcloud_features[densify_point_id_MS_without_overlap, 4:7] -= \
-            #     self.densify_point_info_ms.densify_size_reduction_factor[:num_of_densify_points_MS][
-            #         torch.isin(densify_point_id_MS, densify_point_id_RGB)]
 
             # sample point for over_reconstructed points
             if self.config.enable_sample_from_point:
@@ -619,7 +601,6 @@ class GaussianPointAdaptiveController:
                 self.maintained_parameters.point_invalid_mask.shape[
                     0] - self.maintained_parameters.point_invalid_mask.sum()
             # maybe conflict inside, so cannot validation
-            # assert total_valid_points_after_densify == total_valid_points_before_densify - num_transparent_points - num_floaters_points + num_fillable_densify_points
             print(
                 f"total valid points: {total_valid_points_before_densify} -> {total_valid_points_after_densify}, num_densify_points: {num_of_densify_points}")
             print(
@@ -646,7 +627,6 @@ class GaussianPointAdaptiveController:
         # for position, we use the position before optimization for new points, so that original points and new points have different positions
         num_fillable_densify_points = 0
         if num_of_densify_points > 0:
-            # num_fillable_over_reconstructed_points = over_reconstructed_point_id_to_fill.shape[0]
             num_fillable_densify_points = min(num_of_densify_points, invalid_point_id_to_fill.shape[0])
             self.maintained_parameters.pointcloud[invalid_point_id_to_fill] = \
                 self.densify_point_info.densify_point_position_before_optimization[:num_fillable_densify_points]

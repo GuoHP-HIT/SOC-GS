@@ -28,7 +28,7 @@ import torchvision.transforms as transforms
 
 from ..common.Camera import CameraInfo
 from ..common.utils import SE3_to_quaternion_and_translation_torch
-from .GaussianPointCloudRasterisation import TILE_WIDTH, TILE_HEIGHT
+from .rasterization import TILE_WIDTH, TILE_HEIGHT
 
 #: images are downscaled only when both sides exceed this bound
 MAX_RESOLUTION_TRAIN = 1600

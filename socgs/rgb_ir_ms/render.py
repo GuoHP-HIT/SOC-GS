@@ -35,7 +35,7 @@ from ..common.checkpoints import (
 )
 from ..common.metrics import calculate_psnr, calculate_ssim
 from ..common.utils import SE3_to_quaternion_and_translation_torch, quaternion_to_rotation_matrix_torch
-from .GaussianPointCloudRasterisation import GaussianPointCloudRasterisation
+from .rasterization import GaussianPointCloudRasterisation
 from .ImagePoseDataset import ImagePoseDataset
 
 #: modalities available in the trimodal experiment

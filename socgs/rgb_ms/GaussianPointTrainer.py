@@ -1,8 +1,7 @@
-# %%
 from ..common.GaussianPointCloudScene import GaussianPointCloudScene
 from ..common.pose import LearnPose
 from .ImagePoseDataset import ImagePoseDataset
-from .GaussianPointCloudRasterisation import GaussianPointCloudRasterisation
+from .rasterization import GaussianPointCloudRasterisation
 from .GaussianPointAdaptiveController import GaussianPointAdaptiveController
 from ..common.LossFunction import LossFunction
 import torch
@@ -17,11 +16,7 @@ import os
 from collections import deque
 import numpy as np
 from typing import Optional
-import os
 import cv2
-
-# from pyecharts.charts import Scatter3D
-# scatter3D = Scatter3D()
 
 def cycle(dataloader):
     while True:
@@ -151,10 +146,6 @@ class GaussianPointCloudTrainer:
         # all modalities to optimize
         modality_pool = ['RGB', 'MS']
         modality_flag = 0
-        # modality_pool = ['MS']
-
-        previous_problematic_iteration = -1000
-        scatter_data_3D = []
         for iteration in tqdm(range(self.config.num_iterations)):
             '''
             Step1: single modality warmup
@@ -213,8 +204,6 @@ class GaussianPointCloudTrainer:
                 position_optimizer.step()
                 recent_losses.append(loss.item())
                 # adaptive controller refine
-                # if iteration % self.config.val_interval == 0 and iteration != 0:
-                #     self.validation(val_data_loader, iteration-1)
                 self.adaptive_controller.refinement()
 
             '''
@@ -306,7 +295,6 @@ class GaussianPointCloudTrainer:
                             # plot keypoint in reference images
                             img_pred_cv2 = cv2.imread(rgb_image_pred_path)
                             keypoints_pred_tuple = tuple(map(tuple, keypoints_in_pred))
-                            # keypoints_pred_tuple = tuple(map(int, keypoints_pred_tuple))
                             for points in keypoints_pred_tuple:
                                 points = tuple(map(int, points))
                                 cv2.circle(img_pred_cv2, points, 3, (255, 0, 0), 3)
@@ -427,7 +415,6 @@ class GaussianPointCloudTrainer:
                 image_pred_ms = image_pred.unsqueeze(dim=2)
                 image_pred_ms = torch.clamp(image_pred_ms, min=0, max=1)
                 image_pred_ms = image_pred_ms.permute(2, 0, 1)
-                # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
                 loss, l1_loss, ssim_loss = self.loss_function(
                     image_pred_ms,
                     image_gt_multispectral,
@@ -499,7 +486,6 @@ class GaussianPointCloudTrainer:
                     image_pred_ms = image_pred.unsqueeze(dim=2)
                     image_pred_ms = torch.clamp(image_pred_ms, min=0, max=1)
                     image_pred_ms = image_pred_ms.permute(2, 0, 1)
-                    # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
                     loss, l1_loss, ssim_loss = self.loss_function(
                         image_pred_ms,
                         image_gt_multispectral,
@@ -579,10 +565,6 @@ class GaussianPointCloudTrainer:
                 ti.profiler.print_kernel_profiler_info("count")
                 ti.profiler.clear_kernel_profiler_info()
 
-            # # plot the estimated MS pose with changes in training
-            # if iteration > self.config.warmup_single_modality_iterations and iteration % self.config.scatter3D_plot_frequency == 0:
-            #     scatter3D.render()
-
             # write loss information to writer and console
             if iteration <= self.config.warmup_single_modality_iterations and iteration % self.config.log_loss_interval == 0:
                 self.writer.add_scalar("train/loss", loss.item(), iteration)
@@ -631,7 +613,6 @@ class GaussianPointCloudTrainer:
                     print('<RGB color optimize metrics in joint optimization>',
                           f"train_psnr_rgb_{iteration}=%.4f;" % psnr_score.item(),
                           f"train_ssim_rgb_{iteration}=%.4f;" % ssim_score.item())
-                # modality_flag = 1 - modality_flag
 
             elif iteration > self.config.fine_bundle_adjustment_iteration and current_modality == 'MS' and iteration % self.config.log_metrics_interval == 0:
                 psnr_score, ssim_score = self._compute_pnsr_and_ssim(image_pred=image_pred_ms,
@@ -642,7 +623,6 @@ class GaussianPointCloudTrainer:
                     print('<MS color optimize metrics in joint optimization>',
                           f"train_psnr_ms_{iteration}=%.4f;" % psnr_score.item(),
                           f"train_ssim_ms_{iteration}=%.4f;" % ssim_score.item())
-                # modality_flag = 1 - modality_flag
 
             if iteration % self.config.val_interval == 0 and iteration != 0 and iteration <= self.config.warmup_single_modality_iterations:  # they use 7000 in paper, it's hard to set a interval so hard code it here
                 self.validation(val_data_loader, iteration)
@@ -772,7 +752,6 @@ class GaussianPointCloudTrainer:
             image_pred_ms = image_pred.unsqueeze(dim=2)
             image_pred_ms = torch.clamp(image_pred_ms, min=0, max=1)
             image_pred_ms = image_pred_ms.permute(2, 0, 1)
-            # image_pred_ms = image_pred_ms.repeat(3, 1, 1)
             loss, l1_loss, ssim_loss = self.loss_function(
                 image_pred_ms,
                 image_gt_multispectral,
@@ -782,7 +761,6 @@ class GaussianPointCloudTrainer:
             optimizer.step()
             # position_optimizer.step()
             # estimate_pose_optimizer.step()
-            # del image_gt, q_pointcloud_camera, t_pointcloud_camera, camera_info, gaussian_point_cloud_rasterisation_input_ms, image_pred, loss, l1_loss, ssim_loss
 
         self.store_current_pose_list(self.config.num_iterations+self.config.ending_iterations, modal='ms', num_cameras=len(ms_train_data_loader))
         self.validation_for_cross_spectral(val_data_loader, self.config.num_iterations+self.config.ending_iterations)
@@ -911,23 +889,16 @@ class GaussianPointCloudTrainer:
                 total_loss_MS += loss_MS.item()
                 total_psnr_score_MS += psnr_score_ms.item()
                 total_ssim_score_MS += ssim_score_ms.item()
-                # rasterized_depth = torch.clamp(rasterized_depth, min=0, max=1)
-                # depth_pred = (rasterized_depth - rasterized_depth.min()) / (rasterized_depth.max() - rasterized_depth.min())
-                # depth_name = 'depth_pred_' + 'iter_' + str(iteration) + '_id_' + str(
-                #     camera_info.camera_id) + '.jpg'
                 rgb_image_pred_name = 'rgb_image_pred_' + 'iter_' + str(iteration) + '_id_' + str(
                     camera_info.camera_id) + '.jpg'
                 rgb_image_gt_name = 'rgb_image_gt_' + '_id_' + str(camera_info.camera_id) + '.jpg'
                 ms_image_pred_name = 'ms_image_pred_' + 'iter_' + str(iteration) + '_id_' + str(
                     camera_info.camera_id) + '.jpg'
                 ms_image_gt_name = 'ms_image_gt_' + '_id_' + str(camera_info.camera_id) + '.jpg'
-                # depth_pred_path = os.path.join(self.config.val_image_save_path, depth_name)
                 rgb_image_pred_path = os.path.join(self.config.val_image_save_path, rgb_image_pred_name)
                 rgb_image_gt_path = os.path.join(self.config.val_image_save_path, rgb_image_gt_name)
                 ms_image_pred_path = os.path.join(self.config.val_image_save_path, ms_image_pred_name)
                 ms_image_gt_path = os.path.join(self.config.val_image_save_path, ms_image_gt_name)
-                # depth_image_pred = self.toPIL(depth_pred)
-                # depth_image_pred.save(depth_pred_path)
                 rgb_image_pred = self.toPIL(image_pred)
                 rgb_image_pred.save(rgb_image_pred_path)
                 rgb_image_gt = self.toPIL(image_gt)

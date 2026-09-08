@@ -11,7 +11,7 @@ setup(
     ),
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/",
+    url="https://github.com/GuoHP-HIT/SOC-GS",
     packages=find_packages(),
     # PyTorch / CUDA / Taichi are usually installed in a dedicated environment
     # (see requirements.txt and the README); installing them through setup.py
