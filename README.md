@@ -101,7 +101,6 @@ Taichi compiles its kernels on first use (a few minutes).
 ├── gaussian_point_train.py             # train entry (original CLI)
 ├── gaussian_point_render.py            # frame rendering entry (original CLI)
 ├── cross_spectral_render_w_same_view.py# same-view render + metrics + cost
-├── calculate_PSNR_SSIM.py              # offline PSNR/SSIM for image pairs
 ├── visualizer.py                       # interactive RGB|MS|IR viewer
 ├── parquet_to_ply.py                   # checkpoint -> PLY exporter
 ├── config/
@@ -248,9 +247,6 @@ Batch scripts: `scripts/render_rgb_ms_all_scenes.sh`,
 Additional tools:
 
 ```bash
-# offline metrics on arbitrary image pairs
-python calculate_PSNR_SSIM.py --pred_dir render/orange/rgb_view/rgb --gt_dir render/orange/rgb_view/GT
-
 # legacy frame renderer (frame_000.png style outputs, arbitrary parquet/json)
 python gaussian_point_render.py --parquet_path logs/rgb_ms/orange/best_scene.parquet \
     --poses datasets/orange/val.json --output_prefix result/orange --render_view rgb
@@ -300,6 +296,57 @@ by this repository without conversion:
   default 1e-5 active) was replaced by an explicit `position_learning_rate:
   0.00001`, and the effective stage defaults (`warmup` 5000, `fine BA` 10000,
   `ending` 500, `pose LR` 1e-3) are now written into the configs.
+
+### Minimum pretrained-weight release
+
+The pretrained SOC-GS weights can be downloaded from
+[Baidu Netdisk](https://pan.baidu.com/s/13O44LwIqT5y7aob5khU6JQ?pwd=51mj)
+(extraction code: `51mj`).
+
+To support RGB, MS and IR rendering with the existing command-line tools, a
+released model directory for each scene should contain one scene checkpoint
+and one complete pose pair for every cross-spectral camera used by that
+experiment. Intermediate `scene_<iter>.parquet` files, TensorBoard events and
+validation images are not required.
+
+```text
+pretrained/
+├── rgb_ms/
+│   └── <scene>/
+│       ├── best_scene.parquet
+│       ├── ms_iter_<iteration:06d>_r_.npy
+│       └── ms_iter_<iteration:06d>_t_.npy
+└── rgb_ir_ms/
+    └── <scene>/
+        ├── best_scene.parquet
+        ├── ms_iter_<iteration:06d>_r_.npy
+        ├── ms_iter_<iteration:06d>_t_.npy
+        ├── ir_iter_<iteration:06d>_r_.npy
+        └── ir_iter_<iteration:06d>_t_.npy
+```
+
+`best_scene.parquet` is the required file name when the default evaluation
+commands are used. It stores all Gaussian positions and attributes directly:
+72 features per point for RGB+MS and 88 for RGB+IR+MS. No PyTorch `.pt`/`.pth`
+wrapper or format conversion is needed.
+
+The rotation arrays contain quaternions with shape `(N, 1, 4)` and the
+translation arrays have shape `(N, 1, 3)`. Row `i` must represent absolute
+`camera_id == i`; `N` is therefore determined by the scene and is not always
+30. The `_r_` and `_t_` files of a modality must use the same iteration. For a
+trimodal release, use the same selected iteration for the MS and IR pairs so
+that `--pose_iteration` can select both consistently. When only one pair per
+modality is distributed, the renderer discovers it automatically as the
+latest available snapshot.
+
+The dataset is distributed separately: `val.json` and the RGB/MS/IR source
+images do not belong in the model directory, but they are still required to
+run the quantitative evaluation. Large checkpoint files should be published
+as release assets or through Git LFS rather than committed as ordinary Git
+objects. Preserve the directory structure above in the archive; users can
+then pass `--log_dir pretrained/rgb_ms` or
+`--log_dir pretrained/rgb_ir_ms`. Publishing a SHA-256 checksum manifest next
+to the archives is recommended.
 
 ### Intentional fixes over the original trees
 
